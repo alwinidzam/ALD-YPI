@@ -1,0 +1,6 @@
+{
+  "name": "Arsip Laporan Digital (ALD)",
+  "description": "Sistem arsip digital modern, aman, dan mobile-first untuk Yayasan Pendidikan Islam Raudhotut Tholibin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

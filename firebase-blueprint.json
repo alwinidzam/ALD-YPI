@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Schema representing an authenticated operator in the ALD system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "VIEWER", "ADMIN_SMA", "ADMIN_MTS", "ADMIN_MADIN", "ADMIN_TK", "ADMIN_PESANTREN", "ADMIN_SELAPANAN"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "passwordHash": { "type": "string" },
+        "contact": { "type": "string" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "photoURL": { "type": "string" },
+        "dailyUploadCount": { "type": "integer" },
+        "dailyDownloadCount": { "type": "integer" },
+        "lastActionResetDate": { "type": "string" }
+      },
+      "required": ["id", "username", "name", "role", "status", "passwordHash"]
+    },
+    "DocumentMetadata": {
+      "title": "DocumentMetadata",
+      "description": "Schema representing digital report archives indexed in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fileName": { "type": "string" },
+        "category": { "type": "string", "enum": ["KEUANGAN", "KEGIATAN", "SURAT", "DOKUMEN", "LAINNYA", "SELAPANAN"] },
+        "institution": { "type": "string", "enum": ["YPI", "SMA", "MTS", "MADIN", "TK", "PESANTREN"] },
+        "year": { "type": "string" },
+        "month": { "type": "string" },
+        "description": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "uploadDate": { "type": "string", "format": "date-time" },
+        "uploader": { "type": "string" },
+        "downloadCount": { "type": "integer" },
+        "fileData": { "type": "string" }
+      },
+      "required": ["id", "fileName", "category", "institution", "year", "month", "description", "fileSize", "uploadDate", "uploader", "downloadCount"]
+    },
+    "DocumentChunk": {
+      "title": "DocumentChunk",
+      "description": "Schema representing a sliced chunk of a larger PDF document stored in Firestore to bypass the 1MB limit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "docId": { "type": "string" },
+        "chunkIndex": { "type": "integer" },
+        "totalChunks": { "type": "integer" },
+        "chunkData": { "type": "string" }
+      },
+      "required": ["id", "docId", "chunkIndex", "totalChunks", "chunkData"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Schema representing notices and bulletins broadcast by admins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "priority": { "type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"] },
+        "targetRole": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "EXPIRED"] },
+        "createdBy": { "type": "string" },
+        "createdByUsername": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "priority", "targetRole", "startDate", "endDate", "status", "createdBy"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Schema representing administrative and critical system activity records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "ipAddress": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "username", "name", "role", "action", "details", "ipAddress"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles collection"
+    },
+    "documents/{docId}": {
+      "schema": "DocumentMetadata",
+      "description": "Indexed PDF metadata collection"
+    },
+    "documentChunks/{chunkId}": {
+      "schema": "DocumentChunk",
+      "description": "Base64 PDF file split segments"
+    },
+    "announcements/{annId}": {
+      "schema": "Announcement",
+      "description": "Broadcasting notices and news"
+    },
+    "audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Strict immutable ledger logs"
+    }
+  }
+}

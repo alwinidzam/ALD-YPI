@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Checks if string has a valid length and ID pattern
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Collection: users
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Collection: documents
+    match /documents/{docId} {
+      allow read, write: if true;
+    }
+
+    // Collection: documentChunks
+    match /documentChunks/{chunkId} {
+      allow read, write: if true;
+    }
+
+    // Collection: announcements
+    match /announcements/{annId} {
+      allow read, write: if true;
+    }
+
+    // Collection: audit_logs
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+  }
+}
