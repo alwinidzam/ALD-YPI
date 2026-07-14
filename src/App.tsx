@@ -49,6 +49,7 @@ import { ALDDatabase, generateFileName, getRoleInstitution, hashPassword, compre
 import { onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+import { Analytics } from '@vercel/analytics/react';
 import {
   dbSaveUser,
   dbDeleteUser,
@@ -3683,6 +3684,7 @@ export default function App() {
 
       {/* Vercel Speed Insights */}
       <SpeedInsights />
+      <Analytics />
     </div>
   );
 }
