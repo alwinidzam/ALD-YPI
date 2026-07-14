@@ -48,6 +48,7 @@ import { useFirestoreSync } from './hooks/useFirestoreSync';
 import { ALDDatabase, generateFileName, getRoleInstitution, hashPassword, compressBase64Image } from './data';
 import { onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import {
   dbSaveUser,
   dbDeleteUser,
@@ -3680,6 +3681,8 @@ export default function App() {
         onCancel={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
       />
 
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
     </div>
   );
 }
