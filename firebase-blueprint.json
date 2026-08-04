@@ -8,7 +8,7 @@
         "id": { "type": "string" },
         "username": { "type": "string" },
         "name": { "type": "string" },
-        "role": { "type": "string", "enum": ["SUPER_ADMIN", "VIEWER", "ADMIN_SMA", "ADMIN_MTS", "ADMIN_MADIN", "ADMIN_TK", "ADMIN_PESANTREN", "ADMIN_SELAPANAN"] },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "VIEWER", "ADMIN_SMA", "ADMIN_MTS", "ADMIN_MADIN", "ADMIN_TK", "ADMIN_PESANTREN", "ADMIN_SELAPANAN", "GURU", "STAFF"] },
         "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
         "passwordHash": { "type": "string" },
         "contact": { "type": "string" },
@@ -63,6 +63,7 @@
         "content": { "type": "string" },
         "priority": { "type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"] },
         "targetRole": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
         "startDate": { "type": "string" },
         "endDate": { "type": "string" },
         "status": { "type": "string", "enum": ["ACTIVE", "EXPIRED"] },
@@ -70,7 +71,17 @@
         "createdByUsername": { "type": "string" },
         "createdAt": { "type": "string" },
         "updatedBy": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "updatedAt": { "type": "string" },
+        "attachment": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "type": { "type": "string", "enum": ["pdf", "jpg", "png"] },
+            "fileSize": { "type": "string" },
+            "fileData": { "type": "string" }
+          },
+          "required": ["name", "type"]
+        }
       },
       "required": ["id", "title", "content", "priority", "targetRole", "startDate", "endDate", "status", "createdBy"]
     },
@@ -89,6 +100,85 @@
         "ipAddress": { "type": "string" }
       },
       "required": ["id", "timestamp", "username", "name", "role", "action", "details", "ipAddress"]
+    },
+    "InstitutionProfile": {
+      "title": "InstitutionProfile",
+      "description": "Detailed profiling data for educational institutions, including teachers, board members, and classes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "leader": { "type": "string" },
+        "totalStudents": { "type": "integer" },
+        "totalTeachers": { "type": "integer" },
+        "totalClasses": { "type": "integer" },
+        "teachersList": { "type": "array" },
+        "committeeList": { "type": "array" },
+        "classList": { "type": "array" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "leader"]
+    },
+    "TeacherStaff": {
+      "title": "TeacherStaff",
+      "description": "Schema representing teachers and staff registered for barcode attendance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nip": { "type": "string" },
+        "role": { "type": "string" },
+        "institution": { "type": "string" },
+        "contact": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "barcode": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "institution", "barcode", "status"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Schema representing a single scanned barcode attendance check-in or check-out",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "role": { "type": "string" },
+        "institution": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string", "enum": ["IN", "OUT"] },
+        "status": { "type": "string", "enum": ["HADIR", "TERLAMBAT", "PULANG"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "teacherName", "date", "time", "type", "status"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Schema representing internal reports from Reporting Center",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "trackingCode": { "type": "string" },
+        "type": { "type": "string", "enum": ["WHISTLEBLOWING", "COMPLAINT", "SUGGESTION"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "SUBMITTED", "UNDER_VERIFICATION", "IN_PROGRESS", "NEED_INFO", "RESOLVED", "REJECTED"] },
+        "identityOption": { "type": "string", "enum": ["PROTECTED", "OPEN"] },
+        "reporterId": { "type": "string" },
+        "reporterName": { "type": "string" },
+        "reporterUsername": { "type": "string" },
+        "reporterRole": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "conversation": { "type": "array" }
+      },
+      "required": ["id", "trackingCode", "type", "title", "description", "status", "identityOption", "reporterId", "reporterName", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -111,6 +201,22 @@
     "audit_logs/{logId}": {
       "schema": "AuditLog",
       "description": "Strict immutable ledger logs"
+    },
+    "institution_profiles/{profileId}": {
+      "schema": "InstitutionProfile",
+      "description": "Institutional detailed data, roster, class list, and leadership structure"
+    },
+    "teachers_staff/{teacherId}": {
+      "schema": "TeacherStaff",
+      "description": "Teachers and staff list for attendance tracking"
+    },
+    "attendance_logs/{logId}": {
+      "schema": "AttendanceRecord",
+      "description": "Scanned attendance records log"
+    },
+    "reports/{reportId}": {
+      "schema": "Report",
+      "description": "Reporting center submissions and tickets"
     }
   }
 }

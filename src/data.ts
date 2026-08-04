@@ -4,6 +4,7 @@
  */
 
 import { User, DocumentMetadata, Announcement, AuditLog, UserRole, CategoryType, InstitutionType } from './types';
+import { GENERATED_TEACHER_STAFF_ACCOUNTS } from './lib/pdfAccountGenerator';
 
 // Simple password hashing simulation (Base64 + salt)
 export function hashPassword(password: string): string {
@@ -91,6 +92,26 @@ export const INITIAL_USERS: User[] = [
     passwordHash: hashPassword('Atmin0405'),
     lastLogin: '2026-07-01T09:15:30Z',
     contact: '081122334477'
+  },
+  {
+    id: 'u-guru',
+    username: 'guru',
+    name: 'Ahmad Muzakki, S.Pd.',
+    role: 'GURU',
+    status: 'ACTIVE',
+    passwordHash: hashPassword('Atmin0405'),
+    lastLogin: '2026-07-01T09:15:30Z',
+    contact: '081234567890'
+  },
+  {
+    id: 'u-staff',
+    username: 'staff',
+    name: 'Siti Aminah, A.Md.',
+    role: 'STAFF',
+    status: 'ACTIVE',
+    passwordHash: hashPassword('Atmin0405'),
+    lastLogin: '2026-07-01T09:15:30Z',
+    contact: '081234567891'
   }
 ];
 
@@ -105,12 +126,22 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [];
 
 // Helper to check if a user role matches the administrative target
 export function getRoleInstitution(role: UserRole): InstitutionType | null {
-  if (role === 'ADMIN_SMA') return 'SMA';
-  if (role === 'ADMIN_MTS') return 'MTS';
-  if (role === 'ADMIN_MADIN') return 'MADIN';
-  if (role === 'ADMIN_TK') return 'TK';
-  if (role === 'ADMIN_PESANTREN') return 'PESANTREN';
+  if (role === 'ADMIN_SMA' || role === 'GURU_SMA' || role === 'KEPALA_SMA') return 'SMA';
+  if (role === 'ADMIN_MTS' || role === 'GURU_MTS' || role === 'KEPALA_MTS') return 'MTS';
+  if (role === 'ADMIN_MADIN' || role === 'GURU_MADIN' || role === 'KEPALA_MADIN') return 'MADIN';
+  if (role === 'ADMIN_TK' || role === 'GURU_TK' || role === 'KEPALA_TK') return 'TK';
+  if (role === 'ADMIN_PESANTREN' || role === 'GURU_PESANTREN' || role === 'KEPALA_PESANTREN') return 'PESANTREN';
   return null;
+}
+
+export function isKepalaSekolah(role: UserRole): boolean {
+  return (
+    role === 'KEPALA_SMA' ||
+    role === 'KEPALA_MTS' ||
+    role === 'KEPALA_TK' ||
+    role === 'KEPALA_MADIN' ||
+    role === 'KEPALA_PESANTREN'
+  );
 }
 
 // Name generator
@@ -122,14 +153,14 @@ export function generateFileName(category: CategoryType, institution: Institutio
 export class ALDDatabase {
   static get<T>(key: string, defaultValue: T): T {
     try {
-      if (!localStorage.getItem('ald_db_clean_v4')) {
+      if (!localStorage.getItem('ald_db_clean_v5')) {
         localStorage.removeItem('ald_users');
         localStorage.removeItem('ald_documents');
         localStorage.removeItem('ald_announcements');
         localStorage.removeItem('ald_audit_logs');
         localStorage.removeItem('ald_favorites');
         localStorage.removeItem('ald_current_session');
-        localStorage.setItem('ald_db_clean_v4', 'true');
+        localStorage.setItem('ald_db_clean_v5', 'true');
       }
       const data = localStorage.getItem('ald_' + key);
       return data ? JSON.parse(data) : defaultValue;

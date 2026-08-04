@@ -1,0 +1,40 @@
+name: CI/CD Quality Gate Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-and-test:
+    name: Build, Lint, and Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Environment Validation
+        run: |
+          echo "Validating project configuration..."
+          test -f metadata.json || (echo "Missing metadata.json" && exit 1)
+          test -f package.json || (echo "Missing package.json" && exit 1)
+
+      - name: Run ESLint & Type Check
+        run: npm run lint
+
+      - name: Run Test Suite
+        run: npm run test -- --run
+
+      - name: Run Build
+        run: npm run build

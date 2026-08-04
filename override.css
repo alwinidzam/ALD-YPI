@@ -1,0 +1,18 @@
+@theme {
+  --color-emerald-50: #f4f9f7;
+  --color-emerald-100: #e0f0e8;
+  --color-emerald-200: #c0e0d2;
+  --color-emerald-300: #93c9b4;
+  --color-emerald-400: #62a88f;
+  --color-emerald-500: #428e75;
+  --color-emerald-600: #31725b;
+  --color-emerald-700: #295b4a;
+  --color-emerald-800: #24493d;
+  --color-emerald-900: #1f3d34;
+  --color-emerald-950: #11231f;
+
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+}

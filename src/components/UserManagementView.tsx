@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { toast } from '../lib/toastManager';
 import {
   Users,
   UserPlus,
@@ -17,11 +18,17 @@ import {
   AlertTriangle,
   UserCheck,
   UserX,
-  ShieldAlert
+  ShieldAlert,
+  FileText,
+  Download
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { hashPassword } from '../data';
+import { FirestoreStaffRepository } from '../domains/attendance/repositories/FirestoreStaffRepository';
+const staffRepo = new FirestoreStaffRepository();
 import ConfirmDialog from './ConfirmDialog';
+import { LazyImage } from './LazyImage';
+import { generateUsersPdf } from '../lib/pdfAccountGenerator';
 
 interface UserManagementViewProps {
   users: User[];
@@ -32,7 +39,13 @@ interface UserManagementViewProps {
 
 export default function UserManagementView({ users, onAddUser, onUpdateUser, onDeleteUser }: UserManagementViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [allStaff, setAllStaff] = useState<any[]>([]);
+  React.useEffect(() => {
+    staffRepo.findAll().then(setAllStaff);
+  }, []);
+
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
@@ -48,13 +61,48 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
   const [contact, setContact] = useState('');
 
   // Filtering users
-  const filteredUsers = users.filter((u) => {
+  
+  // Merge users and staff
+  const mergedUsers = React.useMemo(() => {
+    const list: any[] = [];
+    const usedUserIds = new Set();
+
+    allStaff.forEach(staff => {
+      const matchingUser = users.find(u => u.name.toLowerCase() === staff.fullName.toLowerCase());
+      if (matchingUser) {
+        usedUserIds.add(matchingUser.id);
+        list.push({ ...matchingUser, staffId: staff.id, noAccount: false, fullName: staff.fullName, position: staff.position });
+      } else {
+        list.push({
+          id: 'staff-' + staff.id,
+          username: '-',
+          name: staff.fullName,
+          role: staff.role === 'PRINCIPAL' ? 'GUEST' : 'TEACHER',
+          institution: staff.primaryInstitution,
+          noAccount: true,
+          position: staff.position,
+          staffId: staff.id
+        });
+      }
+    });
+
+    users.forEach(u => {
+      if (!usedUserIds.has(u.id)) {
+        list.push({ ...u, noAccount: false });
+      }
+    });
+
+    return list;
+  }, [users, allStaff]);
+
+  const filteredUsers = (mergedUsers as any[]).filter(u => {
     return (
-      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchTerm.toLowerCase())
+      (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (u.username || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (u.role || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
   });
+
 
   const handleOpenAddModal = () => {
     setName('');
@@ -82,7 +130,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
     setShowResetModal(true);
   };
 
-  const handleSaveNewUser = (e: React.FormEvent) => {
+  const handleSaveNewUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !username.trim() || !password.trim()) {
       alert('Harap isi seluruh field bertanda bintang (*)!');
@@ -96,7 +144,8 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
       return;
     }
 
-    onAddUser({
+    setIsSubmitting(true);
+    await onAddUser({
       name: name.trim(),
       username: username.trim().toLowerCase(),
       role,
@@ -106,9 +155,10 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
     });
 
     setShowAddModal(false);
+    setIsSubmitting(false);
   };
 
-  const handleSaveEditUser = (e: React.FormEvent) => {
+  const handleSaveEditUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
     if (!name.trim() || !username.trim()) {
@@ -125,7 +175,9 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
       return;
     }
 
-    onUpdateUser(selectedUser.id, {
+    setIsSubmitting(true);
+    await setIsSubmitting(true);
+    await onUpdateUser(selectedUser.id, {
       name: name.trim(),
       username: username.trim().toLowerCase(),
       role,
@@ -134,9 +186,10 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
     });
 
     setShowEditModal(false);
+    setIsSubmitting(false);
   };
 
-  const handleSaveResetPassword = (e: React.FormEvent) => {
+  const handleSaveResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser || !newPassword.trim()) return;
 
@@ -146,6 +199,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
 
     alert(`Sandi untuk akun @${selectedUser.username} berhasil di-reset.`);
     setShowResetModal(false);
+    setIsSubmitting(false);
   };
 
   const toggleUserStatus = (user: User) => {
@@ -170,7 +224,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
       {/* HEADER ACTION HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-extrabold tracking-tight text-emerald-950 flex items-center gap-2">
+          <h2 className="text-xl font-semibold tracking-tight text-emerald-950 flex items-center gap-2">
             <Users className="w-5 h-5 text-emerald-600" /> Manajemen Pengguna (User)
           </h2>
           <p className="text-xs text-stone-500 font-medium mt-0.5">
@@ -178,32 +232,51 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
           </p>
         </div>
         
-        <button
-          onClick={handleOpenAddModal}
-          className="soft-button-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 self-end sm:self-auto cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4 stroke-[2.5]" /> Tambah User Baru
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto">
+          <button
+            onClick={async () => {
+              const toastId = toast.loading('Sedang menghasilkan dokumen PDF Akun...');
+              try {
+                await generateUsersPdf(users);
+                toast.completeLoading(toastId, 'Dokumen PDF berhasil diunduh.', 'success');
+              } catch (e) {
+                console.error("PDF generation error:", e);
+                toast.completeLoading(toastId, 'Gagal mengunduh dokumen PDF', 'error');
+              }
+            }}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 bg-emerald-50 text-emerald-900 border border-emerald-200/80 hover:bg-emerald-100 transition-all active:scale-95 cursor-pointer"
+            title="Cetak Laporan Daftar Akun Pengguna (PDF)"
+          >
+            <Download className="w-4 h-4 text-emerald-700" /> Cetak PDF Akun
+          </button>
+
+          <button
+            onClick={handleOpenAddModal}
+            className="soft-button-primary px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4 stroke-[2.5]" /> Tambah User Baru
+          </button>
+        </div>
       </div>
 
       {/* SEARCH FIELD */}
-      <div className="relative bg-white border border-emerald-100/50 rounded-2xl p-3 shadow-[4px_4px_16px_rgba(165,180,169,0.08)]">
-        <Search className="w-4 h-4 text-emerald-600/60 absolute left-6 top-1/2 -translate-y-1/2" />
+      <div className="relative">
+        <Search className="w-4 h-4 text-emerald-600/60 absolute left-4 top-1/2 -translate-y-1/2" />
         <input
           type="text"
           placeholder="Cari berdasarkan nama, username, atau jenis wewenang..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full bg-emerald-50/30 border border-emerald-100/80 rounded-xl pl-11 pr-4 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all placeholder-stone-400"
+          className="soft-input pl-11"
         />
       </div>
 
-      {/* USERS LIST TABLE */}
-      <div className="bg-white border border-emerald-100/60 rounded-2xl overflow-hidden shadow-[6px_6px_20px_rgba(165,180,169,0.12)]">
+      {/* USERS LIST TABLE (Desktop & Tablet) */}
+      <div className="soft-card overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs min-w-[800px]">
             <thead>
-              <tr className="bg-gradient-to-r from-emerald-50/40 to-white text-emerald-900 font-bold border-b border-emerald-100/50">
+              <tr className="bg-slate-50/50 text-slate-700 font-semibold border-b border-slate-100">
                 <th className="p-4">Nama Pengguna</th>
                 <th className="p-4">Username</th>
                 <th className="p-4">Wewenang / Lembaga</th>
@@ -213,21 +286,21 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
               </tr>
             </thead>
             <tbody className="divide-y divide-emerald-50/50">
-              {filteredUsers.map((u) => (
+              {filteredUsers.map((u: any) => (
                 <tr key={u.id} className="hover:bg-emerald-50/20 transition-colors">
                   
                   {/* Name Card */}
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       {u.photoURL ? (
-                        <img
+                        <LazyImage
                           src={u.photoURL}
                           alt={u.name}
-                          className="w-8 h-8 rounded-full object-cover border border-emerald-200/50 shadow-sm shrink-0"
+                          className="w-8 h-8 rounded-full object-cover border border-emerald-200/50 shrink-0"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-100/70 text-emerald-800 flex items-center justify-center font-extrabold text-xs uppercase border border-emerald-200/40">
+                        <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-800 flex items-center justify-center font-semibold text-xs uppercase border border-emerald-200/40">
                           {u.name.charAt(0)}
                         </div>
                       )}
@@ -244,13 +317,17 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
 
                   {/* Username font-mono */}
                   <td className="p-4 font-mono text-emerald-800 font-bold">
-                    @{u.username}
+                    {u.noAccount ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 font-sans">No Login Account</span>
+                    ) : (
+                      <>@{u.username}</>
+                    )}
                   </td>
 
                   {/* Role */}
                   <td className="p-4">
-                    <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-extrabold tracking-wider bg-emerald-50/60 text-emerald-700 border border-emerald-200/30 uppercase">
-                      {u.role.replace('_', ' ')}
+                    <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-semibold tracking-wider bg-emerald-50/60 text-emerald-700 border border-emerald-200/30 uppercase">
+                      {u.role.replace(/_/g, ' ')}
                     </span>
                   </td>
 
@@ -262,11 +339,11 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                   {/* Status */}
                   <td className="p-4">
                     {u.status === 'ACTIVE' ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200/50 shadow-sm">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
                         <CheckCircle2 className="w-3 h-3" /> Aktif
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-red-50 text-red-700 border border-red-100 shadow-sm">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-100">
                         <XCircle className="w-3 h-3" /> Nonaktif
                       </span>
                     )}
@@ -282,8 +359,8 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                           onClick={() => toggleUserStatus(u)}
                           className={`p-2 rounded-xl border transition-all ${
                             u.status === 'ACTIVE'
-                              ? 'bg-amber-50 border-amber-200/60 text-amber-700 hover:bg-amber-100/80 hover:shadow-sm'
-                              : 'bg-emerald-50 border-emerald-200/60 text-emerald-700 hover:bg-emerald-100/80 hover:shadow-sm'
+                              ? 'bg-amber-50 border-amber-200/60 text-amber-700 hover:bg-amber-100/80 '
+                              : 'bg-emerald-50 border-emerald-200/60 text-emerald-700 hover:bg-emerald-100/80 '
                           }`}
                           title={u.status === 'ACTIVE' ? 'Nonaktifkan Akun' : 'Aktifkan Akun'}
                         >
@@ -295,10 +372,10 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                         </span>
                       )}
 
-                      {/* Reset Pass button (Yellow sweetener!) */}
+                      {/* Reset Pass button */}
                       <button
                         onClick={() => handleOpenResetModal(u)}
-                        className="p-2 rounded-xl border border-yellow-200 bg-yellow-50/50 hover:bg-yellow-100 text-yellow-700 transition-all hover:shadow-sm"
+                        className="p-2 rounded-xl border border-yellow-200 bg-yellow-50/50 hover:bg-yellow-100 text-yellow-700 transition-all "
                         title="Reset Sandi"
                       >
                         <Lock className="w-3.5 h-3.5" />
@@ -307,7 +384,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                       {/* Edit Button */}
                       <button
                         onClick={() => handleOpenEditModal(u)}
-                        className="p-2 rounded-xl border border-emerald-100 bg-white hover:bg-emerald-50 text-emerald-700 transition-all hover:shadow-sm"
+                        className="p-2 rounded-xl border border-emerald-100 soft-bg hover:bg-emerald-50 text-emerald-700 transition-all "
                         title="Edit Profil"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -317,7 +394,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                       <button
                         onClick={() => handleDeleteClick(u)}
                         disabled={u.role === 'SUPER_ADMIN'}
-                        className="p-2 rounded-xl border border-red-100 bg-white hover:bg-red-50 text-red-600 disabled:opacity-20 disabled:hover:bg-white disabled:hover:text-red-600 transition-all hover:shadow-sm"
+                        className="p-2 rounded-xl border border-red-100 soft-bg hover:bg-red-50 text-red-600 disabled:opacity-20 disabled:hover:soft-bg disabled:hover:text-red-600 transition-all "
                         title="Hapus Akun"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -342,12 +419,103 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
         </div>
       </div>
 
+      {/* USERS MOBILE CARDS (Mobile & Small Screens) */}
+      <div className="space-y-3 block md:hidden">
+        {filteredUsers.map((u: any) => (
+          <div key={u.id} className="soft-card p-4 rounded-2xl border border-emerald-100/60 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {u.photoURL ? (
+                  <LazyImage
+                    src={u.photoURL}
+                    alt={u.name}
+                    className="w-10 h-10 rounded-full object-cover border border-emerald-200/50 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold text-sm uppercase border border-emerald-200/40">
+                    {u.name.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-bold text-stone-900 text-sm">{u.name}</h4>
+                  <p className="font-mono text-emerald-800 text-xs font-semibold">@{u.username}</p>
+                </div>
+              </div>
+              <div>
+                {u.status === 'ACTIVE' ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
+                    <CheckCircle2 className="w-3 h-3" /> Aktif
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-100">
+                    <XCircle className="w-3 h-3" /> Nonaktif
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-semibold tracking-wider bg-emerald-50/60 text-emerald-700 border border-emerald-200/30 uppercase">
+                {u.role.replace(/_/g, ' ')}
+              </span>
+              <span className="text-stone-600 font-bold font-mono text-[11px]">
+                {u.contact || <span className="text-stone-300 font-sans font-normal italic">Kontak (-)</span>}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              {u.role !== 'SUPER_ADMIN' && (
+                <button
+                  onClick={() => toggleUserStatus(u)}
+                  className={`p-2 rounded-xl border transition-all text-xs flex items-center gap-1 ${
+                    u.status === 'ACTIVE'
+                      ? 'bg-amber-50 border-amber-200/60 text-amber-700'
+                      : 'bg-emerald-50 border-emerald-200/60 text-emerald-700'
+                  }`}
+                >
+                  {u.status === 'ACTIVE' ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                  <span className="text-[10px] font-semibold">{u.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}</span>
+                </button>
+              )}
+              <button
+                onClick={() => handleOpenResetModal(u)}
+                className="p-2 rounded-xl border border-yellow-200 bg-yellow-50/50 text-yellow-700 text-xs flex items-center gap-1"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-semibold">Reset</span>
+              </button>
+              <button
+                onClick={() => handleOpenEditModal(u)}
+                className="p-2 rounded-xl border border-emerald-100 bg-white text-emerald-700 text-xs flex items-center gap-1"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-semibold">Edit</span>
+              </button>
+              <button
+                onClick={() => handleDeleteClick(u)}
+                disabled={u.role === 'SUPER_ADMIN'}
+                className="p-2 rounded-xl border border-red-100 bg-white text-red-600 disabled:opacity-20 text-xs flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+        {filteredUsers.length === 0 && (
+          <div className="p-8 text-center text-stone-400 bg-white rounded-2xl border border-slate-100">
+            <ShieldAlert className="w-8 h-8 mx-auto mb-2 text-stone-300" />
+            <p className="text-xs font-bold">Tidak ada pengguna yang terdaftar atau cocok dengan pencarian.</p>
+          </div>
+        )}
+      </div>
+
       {/* --- ADD USER MODAL --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-[#07140b]/65 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white border border-emerald-100/55 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-scale-up">
+          <div className="soft-card w-full max-w-md p-6 animate-scale-up max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-emerald-50 pb-3 mb-4">
-              <h3 className="text-sm font-extrabold text-emerald-950 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-emerald-950 flex items-center gap-2">
                 <UserPlus className="w-4 h-4 text-emerald-600" /> Daftarkan Pengguna Baru
               </h3>
               <button onClick={() => setShowAddModal(false)} className="text-stone-400 hover:text-stone-600 p-1.5 rounded-lg hover:bg-stone-50">
@@ -357,61 +525,73 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
 
             <form onSubmit={handleSaveNewUser} className="space-y-4">
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Nama Pengguna *</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Nama Pengguna *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Alwi Nidzam, S.Kom."
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Username Unik *</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Username Unik *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. adminsma (huruf kecil)"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-mono font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input font-mono font-bold"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Kata Sandi Awal *</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Kata Sandi Awal *</label>
                 <input
                   type="password"
                   required
                   placeholder="Minimal 6 karakter"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Kontak / No. Telepon</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Kontak / No. Telepon</label>
                 <input
                   type="text"
                   placeholder="e.g. 081234567890"
                   value={contact}
                   onChange={(e) => setContact(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Wewenang / Role</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Wewenang / Role</label>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value as UserRole)}
-                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 focus:outline-none focus:border-emerald-500 focus:bg-white transition-all cursor-pointer"
+                    className="soft-input font-bold cursor-pointer"
                   >
                     <option value="VIEWER">VIEWER</option>
+                    <option value="KEPALA_SMA">KEPALA SEKOLAH SMA</option>
+                    <option value="KEPALA_MTS">KEPALA SEKOLAH MTS</option>
+                    <option value="KEPALA_TK">KEPALA SEKOLAH TK</option>
+                    <option value="KEPALA_MADIN">KEPALA MADIN</option>
+                    <option value="KEPALA_PESANTREN">KEPALA PESANTREN</option>
+                    <option value="GURU_SMA">GURU SMA</option>
+                    <option value="GURU_MTS">GURU MTS</option>
+                    <option value="GURU_TK">GURU TK</option>
+                    <option value="GURU_MADIN">GURU MADIN</option>
+                    <option value="GURU_PESANTREN">GURU PESANTREN</option>
+                    <option value="GURU">GURU (UMUM)</option>
+                    <option value="STAFF">STAFF (STAF/PEGAWAI)</option>
                     <option value="SUPER_ADMIN">SUPER ADMIN</option>
                     <option value="ADMIN_SMA">ADMIN SMA</option>
                     <option value="ADMIN_MTS">ADMIN MTS</option>
@@ -423,11 +603,11 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Status Akun</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Status Akun</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value as any)}
-                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 focus:outline-none focus:border-emerald-500 focus:bg-white transition-all cursor-pointer"
+                    className="soft-input font-bold cursor-pointer"
                   >
                     <option value="ACTIVE">AKTIF</option>
                     <option value="INACTIVE">NON-AKTIF</option>
@@ -458,9 +638,9 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
       {/* --- EDIT USER MODAL --- */}
       {showEditModal && selectedUser && (
         <div className="fixed inset-0 bg-[#07140b]/65 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white border border-emerald-100/55 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-scale-up">
+          <div className="soft-card w-full max-w-md p-6 animate-scale-up max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-emerald-50 pb-3 mb-4">
-              <h3 className="text-sm font-extrabold text-emerald-950 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-emerald-950 flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-emerald-600" /> Edit Detail Pengguna
               </h3>
               <button onClick={() => setShowEditModal(false)} className="text-stone-400 hover:text-stone-600 p-1.5 rounded-lg hover:bg-stone-50">
@@ -470,51 +650,63 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
 
             <form onSubmit={handleSaveEditUser} className="space-y-4">
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Nama Pengguna *</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Nama Pengguna *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Alwi Nidzam, S.Kom."
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Username Unik</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Username Unik</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. adminsma"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-mono font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input font-mono font-bold"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Kontak / No. Telepon</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Kontak / No. Telepon</label>
                 <input
                   type="text"
                   placeholder="e.g. 081234567890"
                   value={contact}
                   onChange={(e) => setContact(e.target.value)}
-                  className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  className="soft-input"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Wewenang / Role</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Wewenang / Role</label>
                   <select
                     value={role}
                     disabled={selectedUser.role === 'SUPER_ADMIN'}
                     onChange={(e) => setRole(e.target.value as UserRole)}
-                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 disabled:opacity-50 focus:outline-none focus:border-emerald-500 focus:bg-white transition-all cursor-pointer"
+                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 disabled:opacity-50 focus:outline-none focus:border-emerald-500 focus:soft-bg transition-all cursor-pointer"
                   >
                     <option value="SUPER_ADMIN">SUPER ADMIN</option>
                     <option value="VIEWER">VIEWER</option>
+                    <option value="KEPALA_SMA">KEPALA SEKOLAH SMA</option>
+                    <option value="KEPALA_MTS">KEPALA SEKOLAH MTS</option>
+                    <option value="KEPALA_TK">KEPALA SEKOLAH TK</option>
+                    <option value="KEPALA_MADIN">KEPALA MADIN</option>
+                    <option value="KEPALA_PESANTREN">KEPALA PESANTREN</option>
+                    <option value="GURU_SMA">GURU SMA</option>
+                    <option value="GURU_MTS">GURU MTS</option>
+                    <option value="GURU_TK">GURU TK</option>
+                    <option value="GURU_MADIN">GURU MADIN</option>
+                    <option value="GURU_PESANTREN">GURU PESANTREN</option>
+                    <option value="GURU">GURU (UMUM)</option>
+                    <option value="STAFF">STAFF (STAF/PEGAWAI)</option>
                     <option value="ADMIN_SMA">ADMIN SMA</option>
                     <option value="ADMIN_MTS">ADMIN MTS</option>
                     <option value="ADMIN_MADIN">ADMIN MADIN</option>
@@ -525,12 +717,12 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block mb-1">Status Akun</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">Status Akun</label>
                   <select
                     value={status}
                     disabled={selectedUser.role === 'SUPER_ADMIN'}
                     onChange={(e) => setStatus(e.target.value as any)}
-                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 disabled:opacity-50 focus:outline-none focus:border-emerald-500 focus:bg-white transition-all cursor-pointer"
+                    className="w-full bg-emerald-50/20 border border-emerald-100/70 rounded-xl px-3 py-2.5 text-xs font-bold text-emerald-950 disabled:opacity-50 focus:outline-none focus:border-emerald-500 focus:soft-bg transition-all cursor-pointer"
                   >
                     <option value="ACTIVE">AKTIF</option>
                     <option value="INACTIVE">NON-AKTIF</option>
@@ -561,9 +753,9 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
       {/* --- RESET PASSWORD MODAL --- */}
       {showResetModal && selectedUser && (
         <div className="fixed inset-0 bg-[#07140b]/65 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white border border-yellow-100 rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-scale-up">
+          <div className="soft-bg border border-yellow-100 rounded-xl w-full max-w-sm p-6 animate-scale-up max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-yellow-50 pb-3 mb-4">
-              <h3 className="text-sm font-extrabold text-yellow-900 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-yellow-900 flex items-center gap-2">
                 <Lock className="w-4 h-4 text-yellow-600" /> Reset Kata Sandi User
               </h3>
               <button onClick={() => setShowResetModal(false)} className="text-stone-400 hover:text-stone-600 p-1.5 rounded-lg hover:bg-stone-50">
@@ -571,10 +763,10 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
               </button>
             </div>
 
-            <div className="bg-yellow-50/60 border border-yellow-100 text-yellow-800 rounded-2xl p-4 text-xs mb-4 flex gap-2.5 items-start font-medium leading-relaxed shadow-sm">
+            <div className="bg-yellow-50/60 border border-yellow-100 text-yellow-800 rounded-xl p-4 text-xs mb-4 flex gap-2.5 items-start font-medium leading-relaxed">
               <AlertTriangle className="w-4 h-4 shrink-0 text-yellow-600 mt-0.5" />
               <div>
-                <p className="font-extrabold text-yellow-950">Perhatian Keamanan</p>
+                <p className="font-semibold text-yellow-950">Perhatian Keamanan</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-yellow-900">
                   Tindakan ini akan menimpa sandi lama milik @<strong className="font-bold text-[#0c2214]">{selectedUser.username}</strong> dengan sandi baru di bawah ini.
                 </p>
@@ -583,14 +775,14 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
 
             <form onSubmit={handleSaveResetPassword} className="space-y-4">
               <div>
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-yellow-800 block mb-1">Kata Sandi Baru *</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-yellow-800 block mb-1">Kata Sandi Baru *</label>
                 <input
                   type="password"
                   required
                   placeholder="Isi sandi baru minimal 6 karakter"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-yellow-50/20 border border-yellow-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-yellow-500 focus:bg-white transition-all"
+                  className="w-full bg-yellow-50/20 border border-yellow-100/70 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-yellow-500 focus:soft-bg transition-all"
                 />
               </div>
 
@@ -604,7 +796,7 @@ export default function UserManagementView({ users, onAddUser, onUpdateUser, onD
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-gradient-to-r from-yellow-500 to-amber-500 text-white hover:from-yellow-600 hover:to-amber-600 rounded-xl text-xs font-extrabold transition-all shadow-md shadow-yellow-500/10 cursor-pointer"
+                  className="soft-button-primary bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-semibold cursor-pointer"
                 >
                   Reset Sandi Akun
                 </button>

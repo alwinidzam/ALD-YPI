@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { onSnapshot } from 'firebase/firestore';
+import { onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { User, DocumentMetadata, Announcement, AuditLog, UserRole } from '../types';
 import { ALDDatabase, hashPassword, compressBase64Image } from '../data';
-import { dbSaveUser } from '../firebase';
+import { dbSaveUser, dbDeleteUser, dbCleanOldAuditLogs } from '../firebase';
 import { usersCol, docsCol, annsCol, logsCol } from '../firebase';
 
 interface UseFirestoreSyncProps {
@@ -11,6 +11,20 @@ interface UseFirestoreSyncProps {
 }
 
 export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSyncProps) {
+  // Automatic cleanup of audit logs older than 90 days to maintain Firestore DB performance
+  useEffect(() => {
+    dbCleanOldAuditLogs()
+      .then((deletedCount) => {
+        if (deletedCount > 0) {
+          console.log(`[Pembersihan Otomatis] Berhasil menghapus ${deletedCount} data audit log yang berusia lebih dari 90 hari.`);
+        }
+      })
+      .catch((err) => {
+        // Soft fallback for background auto-cleanup
+        console.warn('Proses pembersihan otomatis audit log dilewati:', err?.message || err);
+      });
+  }, [syncTrigger]);
+
   const [users, setUsers] = useState<User[]>(() => {
     const dbUsers = ALDDatabase.getUsers();
     const targetHash = hashPassword('Atmin0405');
@@ -71,16 +85,16 @@ export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSy
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => ALDDatabase.getAnnouncements());
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => ALDDatabase.getAuditLogs());
 
-  const [isUsersLoading, setIsUsersLoading] = useState(true);
+  const [isUsersLoading, setIsUsersLoading] = useState(() => users.length === 0);
   const [usersError, setUsersError] = useState<string | null>(null);
 
-  const [isDocsLoading, setIsDocsLoading] = useState(true);
+  const [isDocsLoading, setIsDocsLoading] = useState(() => documents.length === 0);
   const [docsError, setDocsError] = useState<string | null>(null);
 
-  const [isAnnsLoading, setIsAnnsLoading] = useState(true);
+  const [isAnnsLoading, setIsAnnsLoading] = useState(() => announcements.length === 0);
   const [annsError, setAnnsError] = useState<string | null>(null);
 
-  const [isLogsLoading, setIsLogsLoading] = useState(true);
+  const [isLogsLoading, setIsLogsLoading] = useState(() => auditLogs.length === 0);
   const [logsError, setLogsError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,12 +105,26 @@ export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSy
     if (announcements.length === 0) setIsAnnsLoading(true);
     if (auditLogs.length === 0) setIsLogsLoading(true);
 
+    // Safety fallback timer to prevent infinite loading state if Firestore connection hangs
+    const safetyTimer = setTimeout(() => {
+      if (!isMounted) return;
+      setIsUsersLoading(false);
+      setIsDocsLoading(false);
+      setIsAnnsLoading(false);
+      setIsLogsLoading(false);
+    }, 5000);
+
     const unsubUsers = onSnapshot(usersCol, (snapshot) => {
       if (!isMounted) return;
       
       const fetchedUsers: User[] = [];
       snapshot.forEach((docSnap) => {
-        fetchedUsers.push(docSnap.data() as User);
+        const u = docSnap.data() as User;
+        if (u.id?.startsWith('u-gen-') || docSnap.id.startsWith('u-gen-')) {
+          dbDeleteUser(docSnap.id);
+        } else {
+          fetchedUsers.push(u);
+        }
       });
       
       const requiredRoles: { role: UserRole; username: string; name: string; id: string; contact: string }[] = [
@@ -143,20 +171,6 @@ export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSy
           setUsersError('Gagal melakukan sinkronisasi seeder pengguna');
         });
       } else {
-        fetchedUsers.forEach(async (u) => {
-          if (u.photoURL && u.photoURL.length > 100000) {
-            try {
-              const compressed = await compressBase64Image(u.photoURL);
-              if (isMounted) {
-                const repairedUser: User[] | any = { ...u, photoURL: compressed };
-                await dbSaveUser(repairedUser);
-              }
-            } catch (repairErr) {
-              console.error('Failed self-healing for user avatar:', repairErr);
-            }
-          }
-        });
-
         setUsers(fetchedUsers);
         ALDDatabase.saveUsers(fetchedUsers);
         setIsUsersLoading(false);
@@ -223,7 +237,8 @@ export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSy
       console.error('Error in announcements listener:', error);
     });
 
-    const unsubLogs = onSnapshot(logsCol, (snapshot) => {
+    const logsQuery = query(logsCol, orderBy('timestamp', 'desc'), limit(500));
+    const unsubLogs = onSnapshot(logsQuery, (snapshot) => {
       if (!isMounted) return;
       const fetchedLogs: AuditLog[] = [];
       snapshot.forEach((docSnap) => {
@@ -243,6 +258,7 @@ export function useFirestoreSync({ syncTrigger, setCurrentUser }: UseFirestoreSy
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
       unsubUsers();
       unsubDocs();
       unsubAnns();
